@@ -1,0 +1,69 @@
+name: replay-module
+on:
+  workflow_dispatch:
+    inputs:
+      task:
+        description: Module or packet ID that this account holds a grant for
+        required: true
+        default: M161227
+      record_sha:
+        description: rohanarun/alpoge-rh-replay commit to use as the record
+        required: true
+        default: 0e753eefa3ed54274fbc197edf94f3f617d16596
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 340
+    steps:
+      - name: Free disk space
+        run: |
+          df -h /
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/boost
+          df -h /
+      - name: Record checkout (pinned upstream commit)
+        uses: actions/checkout@v4
+        with:
+          repository: rohanarun/alpoge-rh-replay
+          ref: ${{ inputs.record_sha }}
+          path: record
+      - name: Install elan (no default toolchain)
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -o elan-init.sh
+          sh elan-init.sh -y --default-toolchain none
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+      - name: Environment
+        run: |
+          date -u +%FT%TZ | tee start_utc.txt
+          { uname -a; nproc; free -h; df -h /; elan --version; git --version; tar --version | head -1; python3 --version; } | tee env.txt
+      - name: Prepare (verify.sh --prepare-only)
+        run: |
+          ./record/verify.sh "$HOME/replay" --prepare-only
+          date -u +%FT%TZ | tee prepared_utc.txt
+      - name: Build task
+        run: |
+          set +e
+          start=$(date +%s)
+          python3 record/tracker/tasks.py build "${{ inputs.task }}" "$HOME/replay/lean" "$HOME/receipt" --bundle
+          code=$?
+          echo "exit=$code elapsed_s=$(( $(date +%s) - start ))" | tee build_result.txt
+          date -u +%FT%TZ | tee end_utc.txt
+          free -h >> env.txt; df -h / >> env.txt
+          exit $code
+      - name: Collect evidence
+        if: always()
+        run: |
+          mkdir -p evidence
+          cp -r "$HOME/receipt" evidence/ 2>/dev/null || true
+          cp "$HOME/replay/replay.log" evidence/ 2>/dev/null || true
+          cp *.txt evidence/ 2>/dev/null || true
+          (cd evidence && find . -type f ! -name SHA256SUMS -exec sha256sum {} + | sort -k2 > SHA256SUMS)
+          cat evidence/SHA256SUMS
+          cat evidence/receipt/receipt.json 2>/dev/null || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: replay-${{ inputs.task }}
+          path: evidence
+          retention-days: 90
