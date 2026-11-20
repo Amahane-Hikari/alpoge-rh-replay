@@ -1,5 +1,8 @@
 name: replay-module
 on:
+  push:
+    branches: [replay-actions]
+    paths: [.github/workflows/replay-module.yml]
   workflow_dispatch:
     inputs:
       task:
@@ -10,6 +13,9 @@ on:
         description: rohanarun/alpoge-rh-replay commit to use as the record
         required: true
         default: 0e753eefa3ed54274fbc197edf94f3f617d16596
+env:
+  TASK: ${{ inputs.task || 'M161227' }}
+  RECORD_SHA: ${{ inputs.record_sha || '0e753eefa3ed54274fbc197edf94f3f617d16596' }}
 permissions:
   contents: read
 jobs:
@@ -26,7 +32,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: rohanarun/alpoge-rh-replay
-          ref: ${{ inputs.record_sha }}
+          ref: ${{ env.RECORD_SHA }}
           path: record
       - name: Install elan (no default toolchain)
         run: |
@@ -45,7 +51,7 @@ jobs:
         run: |
           set +e
           start=$(date +%s)
-          python3 record/tracker/tasks.py build "${{ inputs.task }}" "$HOME/replay/lean" "$HOME/receipt" --bundle
+          python3 record/tracker/tasks.py build "$TASK" "$HOME/replay/lean" "$HOME/receipt" --bundle
           code=$?
           echo "exit=$code elapsed_s=$(( $(date +%s) - start ))" | tee build_result.txt
           date -u +%FT%TZ | tee end_utc.txt
@@ -64,6 +70,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: replay-${{ inputs.task }}
+          name: replay-${{ env.TASK }}
           path: evidence
           retention-days: 90
